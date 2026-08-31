@@ -132,9 +132,8 @@ GlassBox/
 ├── data/                       # Processed stratified datasets & sample evaluation CSVs
 │   ├── processed/              # train.csv (227k) and test.csv (56k held-out)
 │   └── sample_eval_transactions.csv
-├── docs/                       # Comprehensive documentation & phase records
-│   ├── architecture.md         # End-to-end system design & mathematical proofs
-│   └── phase-notes/            # Step-by-step logs (Phases 0 through 6)
+├── docs/                       # Comprehensive documentation & system design
+│   └── architecture.md         # End-to-end architecture & mathematical proofs
 ├── logs/                       # Immutable regulatory audit log (logs/audit.log)
 ├── src/
 │   ├── data/                   # Data ingestion, cleaning, and stratified splitting
