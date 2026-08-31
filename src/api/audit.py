@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 import json
 import threading
-from typing import Dict, Any
+from typing import Dict, List, Any
 
 
 class AuditLogger:
@@ -43,6 +43,19 @@ class AuditLogger:
         with self._lock:
             with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record) + "\n")
+
+    def log_batch_transactions(
+        self,
+        records: List[Dict[str, Any]],
+    ) -> None:
+        """Batch append multiple transaction records in a single locked write."""
+        if not records:
+            return
+
+        lines = [json.dumps(r) + "\n" for r in records]
+        with self._lock:
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.writelines(lines)
 
     def log_batch_summary(
         self,

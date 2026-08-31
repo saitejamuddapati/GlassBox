@@ -197,11 +197,11 @@ class FraudExplainer:
 
         # 1. Log Amount
         if "Amount" in df.columns and "log_amount" not in df.columns:
-            df["log_amount"] = np.log1p(df["Amount"])
+            df["log_amount"] = np.log1p(df["Amount"].fillna(0.0))
 
         # 2. Cyclical Time
         if "Time" in df.columns and "sin_hour" not in df.columns:
-            hour = (df["Time"] / 3600.0) % 24.0
+            hour = (df["Time"].fillna(0.0) / 3600.0) % 24.0
             df["hour"] = hour
             df["sin_hour"] = np.sin(2.0 * np.pi * hour / 24.0)
             df["cos_hour"] = np.cos(2.0 * np.pi * hour / 24.0)
@@ -246,6 +246,9 @@ class FraudExplainer:
         # Drop ground-truth target if present
         if "Class" in df.columns:
             df = df.drop(columns=["Class"])
+
+        # Fill missing values if any
+        df = df.fillna(0.0)
 
         # Engineer features
         df_fe = self.engineer_features(df)
@@ -353,6 +356,103 @@ class FraudExplainer:
             "executive_narrative": narrative,
         }
 
+    def explain_batch(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """
+        High-performance vectorized batch explanation for multiple transactions.
+        """
+        X = self._prepare_input_vector(df)
+
+        # Batch probability prediction
+        probs = self.calibrated_model.predict_proba(X)[:, 1]
+
+        # Batch SHAP prediction via native C++ TreeSHAP
+        dmat = xgb.DMatrix(X)
+        shap_matrix = self.booster.predict(dmat, pred_contribs=True)
+        feature_shap = shap_matrix[:, :-1]
+        base_vals = shap_matrix[:, -1]
+
+        feature_names = X.columns.tolist()
+        raw_vals_matrix = X.values
+
+        results = []
+        for i in range(len(df)):
+            prob_fraud = float(probs[i])
+
+            if prob_fraud >= 0.70:
+                decision_tier = "[RED TIER] Instant Hard Block"
+                tier_color = "red"
+                recommended_action = "Decline transaction immediately and flag card for investigation."
+            elif prob_fraud >= 0.08:
+                decision_tier = "[YELLOW TIER] Step-Up 2FA Challenge"
+                tier_color = "yellow"
+                recommended_action = "Prompt cardholder with SMS OTP or biometric verification (Do not auto-decline)."
+            else:
+                decision_tier = "[GREEN TIER] Instant Approval"
+                tier_color = "green"
+                recommended_action = "Fast-track transaction without customer friction."
+
+            shap_row = feature_shap[i]
+            raw_row = raw_vals_matrix[i]
+
+            attributions = []
+            for name, raw_val, shap_val in zip(feature_names, raw_row, shap_row):
+                attributions.append(
+                    {
+                        "feature": name,
+                        "raw_value": float(raw_val),
+                        "shap_value": float(shap_val),
+                        "abs_shap": abs(float(shap_val)),
+                        "direction": "Risk UP" if shap_val > 0 else "Risk DOWN",
+                        "explanation": describe_feature_impact(name, float(raw_val), float(shap_val)),
+                    }
+                )
+
+            risk_up = sorted(
+                [a for a in attributions if a["shap_value"] > 0],
+                key=lambda x: x["shap_value"],
+                reverse=True,
+            )[:3]
+
+            risk_down = sorted(
+                [a for a in attributions if a["shap_value"] < 0],
+                key=lambda x: x["shap_value"],
+            )[:3]
+
+            if prob_fraud >= 0.70:
+                top_reasons = ", ".join([f"'{item['explanation']}'" for item in risk_up[:2]])
+                narrative = (
+                    f"HIGH RISK FRAUD ALERT ({prob_fraud * 100:.1f}% probability): Transaction exhibits critical "
+                    f"risk indicators, primarily driven by {top_reasons}. Instant block recommended."
+                )
+            elif prob_fraud >= 0.08:
+                top_reasons = ", ".join([f"'{item['explanation']}'" for item in risk_up[:2]])
+                narrative = (
+                    f"SUSPICIOUS ACTIVITY ({prob_fraud * 100:.1f}% probability): Risk elevated by {top_reasons}. "
+                    f"Recommend requesting step-up 2FA authentication to avoid customer friction."
+                )
+            else:
+                top_trust = ", ".join([f"'{item['explanation']}'" for item in risk_down[:2]])
+                narrative = (
+                    f"CLEARED / LOW RISK ({prob_fraud * 100:.2f}% probability): Normal behavioral indicators verified, "
+                    f"supported by {top_trust}. Instant approval granted."
+                )
+
+            results.append(
+                {
+                    "fraud_probability": prob_fraud,
+                    "fraud_probability_pct": f"{prob_fraud * 100:.2f}%",
+                    "decision_tier": decision_tier,
+                    "tier_color": tier_color,
+                    "recommended_action": recommended_action,
+                    "base_value": float(base_vals[i]),
+                    "top_risk_drivers_up": risk_up,
+                    "top_trust_drivers_down": risk_down,
+                    "executive_narrative": narrative,
+                }
+            )
+
+        return results
+
 
 def run_test_suite() -> None:
     """Run SHAP explanation tests on 5 representative transactions from the test set."""
@@ -367,12 +467,7 @@ def run_test_suite() -> None:
 
     explainer = FraudExplainer(models_dir=root_dir / "src" / "models" / "saved")
 
-    # Select 5 diverse test transactions:
-    # 1. High-Risk Fraud (Actual Class = 1)
-    # 2. Borderline Fraud (Actual Class = 1)
-    # 3. High-Amount Legitimate Purchase (Actual Class = 0, Amount > $300)
-    # 4. Standard Everyday Purchase (Actual Class = 0)
-    # 5. Covert Multi-Vector Fraud (Actual Class = 1)
+    # Select 5 diverse test transactions
     fraud_indices = test_df[test_df["Class"] == 1].index.tolist()
     legit_high_amt_indices = test_df[(test_df["Class"] == 0) & (test_df["Amount"] > 300)].index.tolist()
     legit_normal_indices = test_df[(test_df["Class"] == 0) & (test_df["Amount"] < 50)].index.tolist()

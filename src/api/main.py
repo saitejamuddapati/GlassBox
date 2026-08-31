@@ -13,7 +13,6 @@ from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 
 from src.explain.explainer import FraudExplainer
 from src.api.schemas import (
@@ -64,6 +63,9 @@ def map_score_to_band_and_action(prob_fraud: float) -> Tuple[str, str, str]:
     - Medium (0.08 to 0.70): Review (Step-Up 2FA Challenge / SMS OTP)
     - High (>= 0.70): Hold (Instant Hard Block / Freeze)
     """
+    if prob_fraud is None or pd.isna(prob_fraud):
+        prob_fraud = 0.0
+
     if prob_fraud >= 0.70:
         return (
             "High",
@@ -82,6 +84,30 @@ def map_score_to_band_and_action(prob_fraud: float) -> Tuple[str, str, str]:
             "Allow",
             "Fast-track transaction without customer friction.",
         )
+
+
+def sanitize_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Strip whitespace and normalize column casing to match expected dataset schema."""
+    df = df.copy()
+    # Strip whitespace from column names
+    df.columns = [str(c).strip() for c in df.columns]
+
+    rename_map = {}
+    for col in df.columns:
+        col_lower = col.lower()
+        if col_lower == "amount":
+            rename_map[col] = "Amount"
+        elif col_lower == "time":
+            rename_map[col] = "Time"
+        elif col_lower == "class":
+            rename_map[col] = "Class"
+        elif col_lower.startswith("v") and col_lower[1:].isdigit():
+            rename_map[col] = f"V{col_lower[1:]}"
+
+    if rename_map:
+        df = df.rename(columns=rename_map)
+
+    return df
 
 
 @app.get("/", response_model=HealthCheckResponse)
@@ -110,7 +136,7 @@ def predict_single_transaction(transaction: TransactionInput) -> TransactionAnal
     data_dict = transaction.model_dump()
     explanation = explainer.explain_transaction(data_dict)
 
-    prob = explanation["fraud_probability"]
+    prob = float(explanation["fraud_probability"])
     risk_band, action, action_desc = map_score_to_band_and_action(prob)
 
     reasons_up = [
@@ -135,7 +161,7 @@ def predict_single_transaction(transaction: TransactionInput) -> TransactionAnal
         for f in explanation["top_trust_drivers_down"]
     ]
 
-    # Audit log
+    # Audit log entry
     audit_logger.log_transaction(
         transaction_id=1,
         amount=transaction.Amount,
@@ -162,7 +188,7 @@ def predict_single_transaction(transaction: TransactionInput) -> TransactionAnal
 @app.post("/api/v1/upload-csv", response_model=BatchAnalysisResponse)
 async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisResponse:
     """
-    Ingest a CSV file of transactions, run batch inference and SHAP explainability,
+    Ingest a CSV file of transactions, run vectorized batch inference and SHAP explainability,
     compute risk band statistics, detect fraud spikes, and evaluate precision/recall if labeled.
     """
     if explainer is None:
@@ -192,19 +218,29 @@ async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisRespons
             detail="The uploaded CSV file is empty.",
         )
 
+    # Normalize column names
+    df = sanitize_dataframe_columns(df)
+
     # Check required columns (Amount and V1..V28)
     required_cols = ["Amount"] + [f"V{i}" for i in range(1, 29)]
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
+        missing_preview = missing[:5]
+        extra_count = len(missing) - 5
+        detail_msg = f"Missing columns: {missing_preview} (+{extra_count} more)" if extra_count > 0 else f"Missing columns: {missing}"
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Uploaded CSV is missing required columns: {missing[:5]} (and {len(missing)-5} more)" if len(missing) > 5 else f"Missing columns: {missing}",
+            detail=f"Uploaded CSV is missing required columns. {detail_msg}",
         )
 
     has_labels = "Class" in df.columns
     total_records = len(df)
 
+    # Run accelerated vectorized batch explanation
+    batch_explanations = explainer.explain_batch(df)
+
     results: List[TransactionAnalysisResult] = []
+    audit_records: List[Dict[str, Any]] = []
     risk_counts = {"Low": 0, "Medium": 0, "High": 0}
     action_counts = {"Allow": 0, "Review": 0, "Hold": 0}
 
@@ -215,10 +251,9 @@ async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisRespons
     gt_tn = 0
     gt_fn = 0
 
-    for idx, row in df.iterrows():
+    for idx, (explanation, (_, row)) in enumerate(zip(batch_explanations, df.iterrows())):
         tx_id = idx + 1
-        explanation = explainer.explain_transaction(row)
-        prob = explanation["fraud_probability"]
+        prob = float(explanation["fraud_probability"])
         risk_band, action, action_desc = map_score_to_band_and_action(prob)
 
         risk_counts[risk_band] += 1
@@ -262,13 +297,16 @@ async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisRespons
 
         orig_data = row.to_dict()
 
-        # Audit log entry
-        audit_logger.log_transaction(
-            transaction_id=tx_id,
-            amount=row.get("Amount", 0.0),
-            risk_score=prob,
-            risk_band=risk_band,
-            recommended_action=action,
+        # Audit record
+        audit_records.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "transaction_id": str(tx_id),
+                "amount": float(row.get("Amount", 0.0)),
+                "risk_score": round(prob, 6),
+                "risk_band": risk_band,
+                "recommended_action": action,
+            }
         )
 
         results.append(
@@ -285,6 +323,9 @@ async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisRespons
                 executive_narrative=explanation["executive_narrative"],
             )
         )
+
+    # Fast batch write to audit log
+    audit_logger.log_batch_transactions(audit_records)
 
     # Risk band percentages
     risk_percentages = {
@@ -339,7 +380,7 @@ async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisRespons
         ground_truth_evaluation=gt_eval,
     )
 
-    # Log batch execution
+    # Log batch event
     audit_logger.log_batch_summary(
         batch_size=total_records,
         risk_counts=risk_counts,
