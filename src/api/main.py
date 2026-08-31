@@ -50,9 +50,9 @@ root_dir = Path(__file__).resolve().parents[2]
 models_dir = root_dir / "src" / "models" / "saved"
 web_dir = root_dir / "web"
 
-# Mount static files for web dashboard
+# Mount static files under /web and /static for assets
 if web_dir.exists():
-    app.mount("/web", StaticFiles(directory=str(web_dir)), name="web")
+    app.mount("/web", StaticFiles(directory=str(web_dir), html=True), name="web")
 
 # Load global model & explainer instance
 try:
@@ -117,17 +117,41 @@ def sanitize_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+# -------------------------------------------------------------
+# Web Frontend Serving Routes
+# -------------------------------------------------------------
 @app.get("/")
 def serve_dashboard():
-    """Serve the GlassBox interactive web dashboard."""
+    """Serve the GlassBox interactive web dashboard at root."""
     index_file = web_dir / "index.html"
     if index_file.exists():
-        return FileResponse(index_file)
+        return FileResponse(index_file, media_type="text/html")
     return {
         "message": "GlassBox API is running. Open /web/index.html or /health for details."
     }
 
 
+@app.get("/style.css")
+def serve_css():
+    """Serve CSS stylesheet for root dashboard."""
+    css_file = web_dir / "style.css"
+    if css_file.exists():
+        return FileResponse(css_file, media_type="text/css")
+    raise HTTPException(status_code=404, detail="style.css not found")
+
+
+@app.get("/app.js")
+def serve_js():
+    """Serve JavaScript logic for root dashboard."""
+    js_file = web_dir / "app.js"
+    if js_file.exists():
+        return FileResponse(js_file, media_type="application/javascript")
+    raise HTTPException(status_code=404, detail="app.js not found")
+
+
+# -------------------------------------------------------------
+# API Endpoints
+# -------------------------------------------------------------
 @app.get("/health", response_model=HealthCheckResponse)
 def health_check() -> HealthCheckResponse:
     """Service health and readiness check."""
