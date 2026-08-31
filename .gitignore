@@ -1,0 +1,18 @@
+# Raw dataset CSV
+*.csv
+data/*.csv
+creditcard.csv
+
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Temporary files and OS metadata
+.DS_Store
+Thumbs.db
+.env

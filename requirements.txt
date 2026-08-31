@@ -1,0 +1,8 @@
+pandas
+scikit-learn
+xgboost
+shap
+imbalanced-learn
+fastapi
+uvicorn
+python-multipart
