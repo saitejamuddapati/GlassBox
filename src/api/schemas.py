@@ -73,19 +73,26 @@ class FraudSpikeStatus(BaseModel):
 
 
 class GroundTruthEvaluation(BaseModel):
-    """Ground truth precision and recall evaluation if labels are present."""
+    """Detailed ground truth evaluation metrics."""
     labels_detected: bool
     total_frauds_in_file: int
-    frauds_intercepted: int
-    recall: str
-    precision: str
-    false_alarms: int
-    true_negatives: int
+    total_legitimate_in_file: int
+    frauds_blocked_instantly: int
+    frauds_intercepted_2fa: int
+    total_frauds_intercepted: int
+    fraud_capture_rate: str
+    hard_false_blocks: int
+    hard_false_alarm_rate: str
+    step_up_2fa_challenges: int
+    legitimate_auto_approved: int
+    hard_block_precision: str
+    combined_precision: str
 
 
 class BatchSummary(BaseModel):
     """Aggregated batch statistics."""
     total_transactions: int
+    displayed_transactions: int
     risk_band_counts: Dict[str, int]
     risk_band_percentages: Dict[str, str]
     actions_breakdown: Dict[str, int]

@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
+import numpy as np
 import pandas as pd
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,7 +68,7 @@ def map_score_to_band_and_action(prob_fraud: float) -> Tuple[str, str, str]:
     Map a calibrated probability score to Risk Band and Recommended Action.
     
     Bands:
-    - Low (< 0.08 or < 0.30): Allow (Frictionless Approval)
+    - Low (< 0.08): Allow (Frictionless Approval)
     - Medium (0.08 to 0.70): Review (Step-Up 2FA Challenge / SMS OTP)
     - High (>= 0.70): Hold (Instant Hard Block / Freeze)
     """
@@ -274,45 +275,119 @@ async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisRespons
             detail=f"Uploaded CSV is missing required columns. {detail_msg}",
         )
 
-    has_labels = "Class" in df.columns
     total_records = len(df)
+    has_labels = "Class" in df.columns
 
-    # Run accelerated vectorized batch explanation
-    batch_explanations = explainer.explain_batch(df)
+    # 1. Vectorized Preparation & Scoring across ALL rows
+    X_all = explainer._prepare_input_vector(df)
+    probs = explainer.calibrated_model.predict_proba(X_all)[:, 1]
+
+    red_mask = probs >= 0.70
+    yellow_mask = (probs >= 0.08) & (probs < 0.70)
+    green_mask = probs < 0.08
+
+    risk_counts = {
+        "High": int(red_mask.sum()),
+        "Medium": int(yellow_mask.sum()),
+        "Low": int(green_mask.sum()),
+    }
+
+    action_counts = {
+        "Hold": int(red_mask.sum()),
+        "Review": int(yellow_mask.sum()),
+        "Allow": int(green_mask.sum()),
+    }
+
+    risk_percentages = {
+        k: f"{(v / total_records) * 100:.2f}%" for k, v in risk_counts.items()
+    }
+
+    # 2. Fraud Spike Sentinel Logic
+    flagged_total = risk_counts["High"] + risk_counts["Medium"]
+    batch_fraud_rate = (flagged_total / total_records) * 100
+    baseline_rate = 0.17  # Standard 0.17% population baseline
+
+    spike_detected = batch_fraud_rate >= 1.0 and flagged_total >= 2
+    if spike_detected:
+        spike_msg = (
+            f"CRITICAL FRAUD SPIKE DETECTED: Batch suspicious rate ({batch_fraud_rate:.2f}%) "
+            f"is {batch_fraud_rate / baseline_rate:.1f}x higher than standard baseline ({baseline_rate}%). "
+            f"Automated bot or card-testing attack pattern suspected."
+        )
+    else:
+        spike_msg = f"Normal volume: Batch risk rate ({batch_fraud_rate:.2f}%) within baseline expectations."
+
+    spike_status = FraudSpikeStatus(
+        spike_detected=spike_detected,
+        batch_fraud_rate_pct=round(batch_fraud_rate, 2),
+        baseline_expected_rate_pct=baseline_rate,
+        spike_alert_message=spike_msg,
+    )
+
+    # 3. Ground Truth Precision/Recall Evaluation (Strict Breakdown)
+    gt_eval: Optional[GroundTruthEvaluation] = None
+    if has_labels:
+        y = df["Class"].values.astype(int)
+        total_frauds = int((y == 1).sum())
+        total_legit = int((y == 0).sum())
+
+        red_tp = int(((red_mask) & (y == 1)).sum())
+        red_fp = int(((red_mask) & (y == 0)).sum())  # True Hard False Alarms
+
+        yellow_tp = int(((yellow_mask) & (y == 1)).sum())
+        yellow_fp = int(((yellow_mask) & (y == 0)).sum())  # 2FA Challenges (NOT blocked)
+
+        green_tn = int(((green_mask) & (y == 0)).sum())
+        green_fn = int(((green_mask) & (y == 1)).sum())
+
+        total_frauds_intercepted = red_tp + yellow_tp
+        hard_prec_val = (red_tp / (red_tp + red_fp) * 100) if (red_tp + red_fp) > 0 else 0.0
+        comb_prec_val = (total_frauds_intercepted / (total_frauds_intercepted + red_fp + yellow_fp) * 100) if (total_frauds_intercepted + red_fp + yellow_fp) > 0 else 0.0
+        recall_val = (total_frauds_intercepted / total_frauds * 100) if total_frauds > 0 else 0.0
+        false_alarm_rate_val = (red_fp / total_legit * 100) if total_legit > 0 else 0.0
+
+        gt_eval = GroundTruthEvaluation(
+            labels_detected=True,
+            total_frauds_in_file=total_frauds,
+            total_legitimate_in_file=total_legit,
+            frauds_blocked_instantly=red_tp,
+            frauds_intercepted_2fa=yellow_tp,
+            total_frauds_intercepted=total_frauds_intercepted,
+            fraud_capture_rate=f"{recall_val:.2f}%",
+            hard_false_blocks=red_fp,
+            hard_false_alarm_rate=f"{false_alarm_rate_val:.4f}%",
+            step_up_2fa_challenges=yellow_fp,
+            legitimate_auto_approved=green_tn,
+            hard_block_precision=f"{hard_prec_val:.2f}%",
+            combined_precision=f"{comb_prec_val:.2f}%",
+        )
+
+    # 4. Detailed Sample Selection for Browser Rendering (Zero-Lag Display)
+    # If file is large (> 250 rows), prioritize all flagged records + sample of normal records
+    MAX_DISPLAY = 250
+    if total_records > MAX_DISPLAY:
+        flagged_indices = np.where(red_mask | yellow_mask)[0]
+        unflagged_indices = np.where(green_mask)[0]
+        
+        remaining_slots = max(0, MAX_DISPLAY - len(flagged_indices))
+        selected_unflagged = unflagged_indices[:remaining_slots]
+        
+        chosen_indices = np.sort(np.concatenate([flagged_indices, selected_unflagged]))
+        display_df = df.iloc[chosen_indices].copy()
+        display_indices_map = chosen_indices
+    else:
+        display_df = df.copy()
+        display_indices_map = np.arange(total_records)
+
+    # Compute SHAP on displayed sample
+    batch_explanations = explainer.explain_batch(display_df)
 
     results: List[TransactionAnalysisResult] = []
-    audit_records: List[Dict[str, Any]] = []
-    risk_counts = {"Low": 0, "Medium": 0, "High": 0}
-    action_counts = {"Allow": 0, "Review": 0, "Hold": 0}
-
-    # Ground truth counters
-    gt_total_fraud = int((df["Class"] == 1).sum()) if has_labels else 0
-    gt_tp = 0
-    gt_fp = 0
-    gt_tn = 0
-    gt_fn = 0
-
-    for idx, (explanation, (_, row)) in enumerate(zip(batch_explanations, df.iterrows())):
-        tx_id = idx + 1
+    for idx, (explanation, (_, row)) in enumerate(zip(batch_explanations, display_df.iterrows())):
+        orig_row_idx = int(display_indices_map[idx])
+        tx_id = orig_row_idx + 1
         prob = float(explanation["fraud_probability"])
         risk_band, action, action_desc = map_score_to_band_and_action(prob)
-
-        risk_counts[risk_band] += 1
-        action_counts[action] += 1
-
-        # Ground truth tracking
-        if has_labels:
-            actual_is_fraud = int(row["Class"]) == 1
-            predicted_is_flagged = action in ["Hold", "Review"]
-
-            if actual_is_fraud and predicted_is_flagged:
-                gt_tp += 1
-            elif not actual_is_fraud and predicted_is_flagged:
-                gt_fp += 1
-            elif not actual_is_fraud and not predicted_is_flagged:
-                gt_tn += 1
-            elif actual_is_fraud and not predicted_is_flagged:
-                gt_fn += 1
 
         reasons_up = [
             ExplanationReason(
@@ -336,24 +411,10 @@ async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisRespons
             for f in explanation["top_trust_drivers_down"]
         ]
 
-        orig_data = row.to_dict()
-
-        # Audit record
-        audit_records.append(
-            {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "transaction_id": str(tx_id),
-                "amount": float(row.get("Amount", 0.0)),
-                "risk_score": round(prob, 6),
-                "risk_band": risk_band,
-                "recommended_action": action,
-            }
-        )
-
         results.append(
             TransactionAnalysisResult(
                 transaction_id=tx_id,
-                original_data=orig_data,
+                original_data=row.to_dict(),
                 risk_score=round(prob, 4),
                 risk_score_pct=f"{prob * 100:.2f}%",
                 risk_band=risk_band,
@@ -365,55 +426,10 @@ async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisRespons
             )
         )
 
-    # Fast batch write to audit log
-    audit_logger.log_batch_transactions(audit_records)
-
-    # Risk band percentages
-    risk_percentages = {
-        k: f"{(v / total_records) * 100:.2f}%" for k, v in risk_counts.items()
-    }
-
-    # Fraud Spike Detection Logic
-    flagged_total = risk_counts["High"] + risk_counts["Medium"]
-    batch_fraud_rate = (flagged_total / total_records) * 100
-    baseline_rate = 0.17  # Standard 0.17% population baseline
-
-    spike_detected = batch_fraud_rate >= 1.0 and flagged_total >= 2
-    if spike_detected:
-        spike_msg = (
-            f"CRITICAL FRAUD SPIKE DETECTED: Batch suspicious rate ({batch_fraud_rate:.2f}%) "
-            f"is {batch_fraud_rate / baseline_rate:.1f}x higher than standard baseline ({baseline_rate}%). "
-            f"Automated bot or card-testing attack pattern suspected."
-        )
-    else:
-        spike_msg = f"Normal volume: Batch risk rate ({batch_fraud_rate:.2f}%) within baseline expectations."
-
-    spike_status = FraudSpikeStatus(
-        spike_detected=spike_detected,
-        batch_fraud_rate_pct=round(batch_fraud_rate, 2),
-        baseline_expected_rate_pct=baseline_rate,
-        spike_alert_message=spike_msg,
-    )
-
-    # Ground Truth Evaluation
-    gt_eval: Optional[GroundTruthEvaluation] = None
-    if has_labels:
-        recall_val = (gt_tp / gt_total_fraud * 100) if gt_total_fraud > 0 else 0.0
-        prec_val = (gt_tp / (gt_tp + gt_fp) * 100) if (gt_tp + gt_fp) > 0 else 0.0
-
-        gt_eval = GroundTruthEvaluation(
-            labels_detected=True,
-            total_frauds_in_file=gt_total_fraud,
-            frauds_intercepted=gt_tp,
-            recall=f"{recall_val:.2f}%",
-            precision=f"{prec_val:.2f}%",
-            false_alarms=gt_fp,
-            true_negatives=gt_tn,
-        )
-
-    # Batch summary
+    # Summary
     summary = BatchSummary(
         total_transactions=total_records,
+        displayed_transactions=len(results),
         risk_band_counts=risk_counts,
         risk_band_percentages=risk_percentages,
         actions_breakdown=action_counts,
@@ -421,7 +437,7 @@ async def upload_csv_batch(file: UploadFile = File(...)) -> BatchAnalysisRespons
         ground_truth_evaluation=gt_eval,
     )
 
-    # Log batch event
+    # Log summary event to audit
     audit_logger.log_batch_summary(
         batch_size=total_records,
         risk_counts=risk_counts,

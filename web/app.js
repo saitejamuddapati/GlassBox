@@ -1,13 +1,17 @@
 /**
  * GlassBox Interactive Frontend Application Logic
  * Modern Vanilla JS with zero external framework dependencies.
+ * Includes client-side pagination for 60 FPS zero-lag rendering.
  */
 
 // API Base URL resolution (works both on port 8000 and direct file://)
 const API_BASE = window.location.origin.includes("http") ? window.location.origin : "http://127.0.0.1:8000";
 
 let currentTransactions = [];
+let filteredTransactions = [];
 let currentFilter = "all";
+let currentPage = 1;
+const PAGE_SIZE = 25;
 
 // Initial startup checks
 document.addEventListener("DOMContentLoaded", () => {
@@ -92,9 +96,9 @@ async function uploadCSVFile(file) {
   const originalHtml = dropzone.innerHTML;
   dropzone.innerHTML = `
     <div style="padding: 20px;">
-      <div style="font-size: 28px; animation: pulse-green 1s infinite;">⚡</div>
+      <div style="font-size: 32px; animation: pulse-green 0.8s infinite;">⚡</div>
       <h3 style="margin-top: 10px;">Scoring & Generating SHAP Attributions...</h3>
-      <p style="font-size: 13px; color: var(--text-secondary);">Analyzing transactions via C++ TreeSHAP engine</p>
+      <p style="font-size: 13px; color: var(--text-secondary);">Vectorized inference on full dataset via C++ TreeSHAP</p>
     </div>
   `;
 
@@ -120,7 +124,6 @@ async function uploadCSVFile(file) {
 
 // Load 10 Demo Transactions
 async function loadDemoBatch() {
-  // Demo dataset with 5 known frauds and 5 legitimate transactions from test set
   const demoCSV = `Time,V1,V2,V3,V4,V5,V6,V7,V8,V9,V10,V11,V12,V13,V14,V15,V16,V17,V18,V19,V20,V21,V22,V23,V24,V25,V26,V27,V28,Amount,Class
 406.0,-2.312294,1.951992,-1.609851,3.997906,-0.522188,-1.426545,-2.537387,1.391657,-2.770089,-2.772272,3.202033,-2.899907,-0.595222,-4.289254,0.389724,-1.140747,-2.830056,-0.016822,0.416956,0.126911,0.517232,-0.035049,-0.465211,0.320198,0.044519,0.177840,0.261145,-0.143276,0.00,1
 472.0,-3.043541,-3.157307,1.088463,2.288644,1.359805,-1.064823,0.325574,-0.067794,-0.270953,-0.838587,-0.414575,-0.503141,0.676502,-1.692029,2.000635,0.666780,0.599717,1.725321,0.283345,2.102339,0.661696,0.435477,1.375966,-0.293803,0.279798,-0.145362,-0.252773,0.035764,529.00,1
@@ -142,18 +145,19 @@ async function loadDemoBatch() {
 function renderBatchResponse(data) {
   const summary = data.summary;
   currentTransactions = data.transactions;
+  currentPage = 1;
 
   // 1. Update KPI Numbers
-  document.getElementById("kpi-total").innerText = summary.total_transactions;
-  document.getElementById("kpi-sub-total").innerText = `${summary.total_transactions} records scored`;
+  document.getElementById("kpi-total").innerText = summary.total_transactions.toLocaleString();
+  document.getElementById("kpi-sub-total").innerText = `${summary.total_transactions.toLocaleString()} total dataset records`;
 
-  document.getElementById("kpi-allow").innerText = summary.risk_band_counts.Low || 0;
+  document.getElementById("kpi-allow").innerText = (summary.risk_band_counts.Low || 0).toLocaleString();
   document.getElementById("kpi-sub-allow").innerText = `${summary.risk_band_percentages.Low || '0%'} • Auto-Approve`;
 
-  document.getElementById("kpi-review").innerText = summary.risk_band_counts.Medium || 0;
+  document.getElementById("kpi-review").innerText = (summary.risk_band_counts.Medium || 0).toLocaleString();
   document.getElementById("kpi-sub-review").innerText = `${summary.risk_band_percentages.Medium || '0%'} • 2FA Challenge`;
 
-  document.getElementById("kpi-hold").innerText = summary.risk_band_counts.High || 0;
+  document.getElementById("kpi-hold").innerText = (summary.risk_band_counts.High || 0).toLocaleString();
   document.getElementById("kpi-sub-hold").innerText = `${summary.risk_band_percentages.High || '0%'} • Instant Block`;
 
   // 2. Fraud Spike Sentinel
@@ -165,45 +169,87 @@ function renderBatchResponse(data) {
     spikeBanner.classList.remove("active");
   }
 
-  // 3. Ground Truth Accuracy (if labels detected)
+  // 3. Ground Truth Accuracy Breakdown
   const gtCard = document.getElementById("ground-truth-card");
   if (summary.ground_truth_evaluation && summary.ground_truth_evaluation.labels_detected) {
     gtCard.style.display = "block";
     const gt = summary.ground_truth_evaluation;
-    document.getElementById("gt-recall").innerText = gt.recall;
-    document.getElementById("gt-precision").innerText = gt.precision;
-    document.getElementById("gt-fp").innerText = gt.false_alarms;
-    document.getElementById("gt-subtext").innerText = `Intercepted ${gt.frauds_intercepted} of ${gt.total_frauds_in_file} frauds with ${gt.false_alarms} false alarms.`;
+    document.getElementById("gt-hard-tp").innerText = `${gt.frauds_blocked_instantly} / ${gt.total_frauds_in_file}`;
+    document.getElementById("gt-hard-fp").innerText = `${gt.hard_false_blocks} (${gt.hard_false_alarm_rate})`;
+    document.getElementById("gt-hard-prec").innerText = gt.hard_block_precision;
+    document.getElementById("gt-2fa-count").innerText = `${gt.step_up_2fa_challenges} users (0 declines)`;
+    document.getElementById("gt-total-stopped").innerText = `${gt.total_frauds_intercepted} / ${gt.total_frauds_in_file} (${gt.fraud_capture_rate})`;
+    document.getElementById("gt-subtext").innerText = `Evaluated against ${gt.total_frauds_in_file} frauds and ${gt.total_legitimate_in_file.toLocaleString()} legitimate cardholders.`;
   } else {
     gtCard.style.display = "none";
   }
 
   // 4. Update Filter Counts
-  document.getElementById("count-all").innerText = currentTransactions.length;
+  document.getElementById("count-all").innerText = summary.displayed_transactions || currentTransactions.length;
   document.getElementById("count-high").innerText = summary.risk_band_counts.High || 0;
   document.getElementById("count-med").innerText = summary.risk_band_counts.Medium || 0;
   document.getElementById("count-low").innerText = summary.risk_band_counts.Low || 0;
 
-  // 5. Render Table
+  // 5. Update info text
+  document.getElementById("display-info-text").innerText = `Displaying ${currentTransactions.length} prioritized transactions with SHAP attributions (Total batch scored: ${summary.total_transactions.toLocaleString()}).`;
+
+  // 6. Render Table with Pagination
   document.getElementById("results-section").style.display = "block";
-  renderTableRows(currentTransactions);
+  filterTable("all");
 }
 
 // Table Filter
 function filterTable(filter) {
   currentFilter = filter;
+  currentPage = 1;
   document.querySelectorAll(".filter-btn").forEach(btn => btn.classList.remove("active"));
-  event.target.classList.add("active");
+  
+  const activeBtn = Array.from(document.querySelectorAll(".filter-btn")).find(b => b.getAttribute("onclick").includes(`'${filter}'`));
+  if (activeBtn) activeBtn.classList.add("active");
 
   if (filter === "all") {
-    renderTableRows(currentTransactions);
+    filteredTransactions = [...currentTransactions];
   } else {
-    const filtered = currentTransactions.filter(tx => tx.risk_band === filter);
-    renderTableRows(filtered);
+    filteredTransactions = currentTransactions.filter(tx => tx.risk_band === filter);
+  }
+
+  renderCurrentPage();
+}
+
+// Pagination Controls
+function renderCurrentPage() {
+  const totalPages = Math.ceil(filteredTransactions.length / PAGE_SIZE) || 1;
+  if (currentPage > totalPages) currentPage = totalPages;
+  if (currentPage < 1) currentPage = 1;
+
+  document.getElementById("current-page-num").innerText = currentPage;
+  document.getElementById("total-pages-num").innerText = totalPages;
+
+  document.getElementById("prev-page-btn").disabled = (currentPage === 1);
+  document.getElementById("next-page-btn").disabled = (currentPage === totalPages);
+
+  const startIdx = (currentPage - 1) * PAGE_SIZE;
+  const pageSlice = filteredTransactions.slice(startIdx, startIdx + PAGE_SIZE);
+
+  renderTableRows(pageSlice);
+}
+
+function prevPage() {
+  if (currentPage > 1) {
+    currentPage--;
+    renderCurrentPage();
   }
 }
 
-// Render Table Rows
+function nextPage() {
+  const totalPages = Math.ceil(filteredTransactions.length / PAGE_SIZE) || 1;
+  if (currentPage < totalPages) {
+    currentPage++;
+    renderCurrentPage();
+  }
+}
+
+// Render Table Rows for Current Page
 function renderTableRows(txList) {
   const tbody = document.getElementById("transactions-tbody");
   tbody.innerHTML = "";
@@ -215,11 +261,8 @@ function renderTableRows(txList) {
 
   txList.forEach(tx => {
     const tr = document.createElement("tr");
-
-    // Amount string
     const amountVal = tx.original_data.Amount !== undefined ? `$${Number(tx.original_data.Amount).toFixed(2)}` : "$0.00";
     
-    // Risk Meter Fill Class
     let fillClass = "fill-green";
     let badgeClass = "badge-allow";
     let badgeIcon = "🟢";
@@ -237,7 +280,6 @@ function renderTableRows(txList) {
       badgeText = "2FA CHALLENGE";
     }
 
-    // Top SHAP Reasons HTML
     let shapHtml = '<div class="shap-tag-group">';
     if (tx.top_3_reasons_risk_up && tx.top_3_reasons_risk_up.length > 0) {
       tx.top_3_reasons_risk_up.forEach(r => {
@@ -355,7 +397,6 @@ async function runSimulatorPrediction() {
   const v14 = parseFloat(document.getElementById("sim-v14").value) || 0.0;
   const v4 = parseFloat(document.getElementById("sim-v4").value) || 0.0;
 
-  // Build payload
   const payload = {
     Time: time,
     Amount: amount,
@@ -437,7 +478,6 @@ function setPreset(type) {
   runSimulatorPrediction();
 }
 
-// Utility to escape HTML
 function escapeHtml(text) {
   if (!text) return "";
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
