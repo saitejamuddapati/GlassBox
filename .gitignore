@@ -12,7 +12,9 @@ __pycache__/
 venv/
 env/
 
-# Temporary files and OS metadata
+# Temporary files, OS metadata, and local logs
 .DS_Store
 Thumbs.db
 .env
+logs/
+*.log
