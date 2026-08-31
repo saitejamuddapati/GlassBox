@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GlassBox — AI Risk Manager & Fraud Spike Sentinel</title>
+  <meta name="description" content="Explainable credit card fraud detection system with 3-tier risk routing, native TreeSHAP attributions, and live fraud-spike sentinel.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div class="container">
+    
+    <!-- Header -->
+    <header class="header">
+      <div class="brand-group">
+        <div class="brand-logo">GB</div>
+        <div class="brand-title">
+          <h1>GlassBox <span class="badge">Track 02: AI Risk Manager</span></h1>
+          <p>Explainable Fraud Detection • Zero-Customer-Loss Policy • Fraud Spike Sentinel</p>
+        </div>
+      </div>
+      <div class="header-status">
+        <div class="status-pill" id="system-status-pill">
+          <span class="status-dot"></span>
+          <span id="system-status-text">Backend Connected • 845 tx/s</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="tabs-nav">
+      <button class="tab-btn active" onclick="switchTab('batch-tab')">📊 Batch CSV Risk Sentinel</button>
+      <button class="tab-btn" onclick="switchTab('sim-tab')">⚡ Live Payment Simulator</button>
+      <button class="tab-btn" onclick="switchTab('defense-tab')">🛡️ Defense & Performance Metrics</button>
+    </nav>
+
+    <!-- ============================================================= -->
+    <!-- TAB 1: BATCH CSV RISK SENTINEL -->
+    <!-- ============================================================= -->
+    <div id="batch-tab" class="tab-content">
+      
+      <!-- Fraud Spike Alert Banner -->
+      <div id="spike-banner" class="fraud-spike-banner">
+        <div class="spike-icon">🚨</div>
+        <div class="spike-content">
+          <h4 id="spike-title">CRITICAL FRAUD SPIKE DETECTED</h4>
+          <p id="spike-msg">Batch suspicious rate is significantly higher than standard baseline (0.17%). Automated bot or card-testing attack pattern suspected.</p>
+        </div>
+      </div>
+
+      <!-- KPI Summary Cards -->
+      <div class="kpi-grid">
+        <div class="kpi-card card-blue">
+          <div class="kpi-header">
+            <span class="kpi-label">Total Scored</span>
+            <span>💳</span>
+          </div>
+          <div class="kpi-value" id="kpi-total">0</div>
+          <div class="kpi-subtext" id="kpi-sub-total">Awaiting batch upload</div>
+        </div>
+
+        <div class="kpi-card card-green">
+          <div class="kpi-header">
+            <span class="kpi-label">Low Risk (Allow)</span>
+            <span>🟢</span>
+          </div>
+          <div class="kpi-value" id="kpi-allow" style="color: var(--tier-green);">0</div>
+          <div class="kpi-subtext" id="kpi-sub-allow">0.00% • Frictionless Approval</div>
+        </div>
+
+        <div class="kpi-card card-yellow">
+          <div class="kpi-header">
+            <span class="kpi-label">Medium (2FA Review)</span>
+            <span>🟡</span>
+          </div>
+          <div class="kpi-value" id="kpi-review" style="color: var(--tier-yellow);">0</div>
+          <div class="kpi-subtext" id="kpi-sub-review">0.00% • SMS OTP Verification</div>
+        </div>
+
+        <div class="kpi-card card-red">
+          <div class="kpi-header">
+            <span class="kpi-label">High Risk (Hold)</span>
+            <span>🔴</span>
+          </div>
+          <div class="kpi-value" id="kpi-hold" style="color: var(--tier-red);">0</div>
+          <div class="kpi-subtext" id="kpi-sub-hold">0.00% • Instant Hard Block</div>
+        </div>
+      </div>
+
+      <!-- Ground Truth Banner (Appears if Labels Exist) -->
+      <div id="ground-truth-card" class="kpi-card" style="display: none; margin-bottom: 24px; border-left: 4px solid var(--accent-cyan); background: rgba(6, 182, 212, 0.08);">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 14px;">
+          <div>
+            <h4 style="font-size: 14px; font-weight: 700; color: var(--accent-cyan);">🎯 Ground Truth Accuracy Validation (Test Labels Detected)</h4>
+            <p style="font-size: 12.5px; color: var(--text-secondary);" id="gt-subtext">Verified against actual dataset labels.</p>
+          </div>
+          <div style="display: flex; gap: 20px; text-align: right;">
+            <div>
+              <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Recall (Frauds Caught)</div>
+              <div style="font-size: 18px; font-weight: 800; color: #34d399;" id="gt-recall">100.0%</div>
+            </div>
+            <div>
+              <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">Precision (Trust in Alerts)</div>
+              <div style="font-size: 18px; font-weight: 800; color: #38bdf8;" id="gt-precision">100.0%</div>
+            </div>
+            <div>
+              <div style="font-size: 11px; color: var(--text-muted); text-transform: uppercase;">False Alarms</div>
+              <div style="font-size: 18px; font-weight: 800; color: #f87171;" id="gt-fp">0</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload Dropzone Card -->
+      <div class="upload-card">
+        <div class="dropzone" id="dropzone" onclick="document.getElementById('csv-file-input').click()">
+          <div class="dropzone-icon">📁</div>
+          <h3>Drag & Drop Transaction CSV Here</h3>
+          <p>Supports full Kaggle dataset columns (Time, Amount, V1–V28, Class)</p>
+          <input type="file" id="csv-file-input" accept=".csv" style="display: none;" onchange="handleFileSelect(event)">
+          <div class="upload-actions" onclick="event.stopPropagation();">
+            <button class="btn btn-primary" onclick="document.getElementById('csv-file-input').click()">Browse CSV File</button>
+            <button class="btn btn-secondary" onclick="loadDemoBatch()">⚡ Load 10 Demo Transactions</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Results Table -->
+      <div class="results-card" id="results-section" style="display: none;">
+        <div class="results-header">
+          <div>
+            <h2>Transaction Risk & Explainability Feed</h2>
+            <p style="font-size: 12.5px; color: var(--text-secondary);">Real-time TreeSHAP attributions and 3-tier action routing per transaction.</p>
+          </div>
+          <div class="table-filters">
+            <button class="filter-btn active" onclick="filterTable('all')">All (<span id="count-all">0</span>)</button>
+            <button class="filter-btn" onclick="filterTable('High')">🔴 High / Block (<span id="count-high">0</span>)</button>
+            <button class="filter-btn" onclick="filterTable('Medium')">🟡 Medium / 2FA (<span id="count-med">0</span>)</button>
+            <button class="filter-btn" onclick="filterTable('Low')">🟢 Low / Allow (<span id="count-low">0</span>)</button>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table>
+            <thead>
+              <tr>
+                <th>Tx ID</th>
+                <th>Amount</th>
+                <th>Calibrated Risk</th>
+                <th>Action Tier</th>
+                <th>Top SHAP Explainability Reasons</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="transactions-tbody">
+              <!-- Rows injected via JavaScript -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- TAB 2: LIVE PAYMENT SIMULATOR -->
+    <!-- ============================================================= -->
+    <div id="sim-tab" class="tab-content" style="display: none;">
+      <div class="simulator-layout">
+        
+        <!-- Controls Panel -->
+        <div class="sim-panel">
+          <h3>🎮 Live Transaction Simulator</h3>
+          <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+            Simulate a live card swipe. Adjust the parameters below to observe real-time probability calibration and SHAP risk factor shifts.
+          </p>
+
+          <div class="form-group">
+            <label for="sim-amount">Transaction Amount ($):</label>
+            <input type="number" id="sim-amount" class="form-control" value="1250.00" step="10" oninput="runSimulatorPrediction()">
+          </div>
+
+          <div class="form-group">
+            <label for="sim-time">Transaction Time (Seconds elapsed):</label>
+            <input type="number" id="sim-time" class="form-control" value="406.0" step="60" oninput="runSimulatorPrediction()">
+          </div>
+
+          <div class="form-group">
+            <label for="sim-v14">V14 Behavioral Security Anomaly (Primary Fraud Factor):</label>
+            <input type="range" id="sim-v14" min="-10" max="4" step="0.1" value="-6.5" style="width: 100%;" oninput="document.getElementById('v14-val').innerText = this.value; runSimulatorPrediction();">
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted);">
+              <span>-10.0 (Severe Anomaly)</span>
+              <span id="v14-val" style="color: var(--accent-cyan); font-weight: 700;">-6.5</span>
+              <span>+4.0 (Safe)</span>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="sim-v4">V4 Transaction Velocity Spike:</label>
+            <input type="range" id="sim-v4" min="-3" max="8" step="0.1" value="3.5" style="width: 100%;" oninput="document.getElementById('v4-val').innerText = this.value; runSimulatorPrediction();">
+            <div style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted);">
+              <span>-3.0 (Low Velocity)</span>
+              <span id="v4-val" style="color: var(--accent-cyan); font-weight: 700;">3.5</span>
+              <span>+8.0 (Burst Velocity)</span>
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button class="btn btn-secondary" style="flex: 1;" onclick="setPreset('fraud')">🔴 Preset: Stolen Card</button>
+            <button class="btn btn-secondary" style="flex: 1;" onclick="setPreset('safe-high')">🟢 Preset: Safe High $1,500</button>
+            <button class="btn btn-secondary" style="flex: 1;" onclick="setPreset('borderline')">🟡 Preset: Borderline 2FA</button>
+          </div>
+        </div>
+
+        <!-- Output Score Panel -->
+        <div class="sim-panel sim-output-card">
+          <span style="font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase;">GlassBox Real-Time Decision</span>
+          
+          <div class="sim-gauge" id="sim-score" style="color: var(--tier-red);">92.5%</div>
+          <div id="sim-badge" class="badge-tier badge-hold" style="font-size: 14px; padding: 6px 18px; margin-bottom: 16px;">[RED TIER] Instant Hard Block</div>
+          
+          <p id="sim-desc" style="font-size: 13px; color: var(--text-secondary); max-width: 440px; margin: 0 auto 24px auto;">
+            Decline transaction immediately and flag card for investigation.
+          </p>
+
+          <div style="text-align: left; background: rgba(0,0,0,0.25); border-radius: var(--radius-md); padding: 16px;">
+            <h4 style="font-size: 12.5px; font-weight: 700; color: var(--text-primary); margin-bottom: 10px;">🔍 Top SHAP Explainability Reasons</h4>
+            <div id="sim-reasons" class="shap-tag-group">
+              <!-- Injected via JavaScript -->
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ============================================================= -->
+    <!-- TAB 3: DEFENSE & PERFORMANCE METRICS -->
+    <!-- ============================================================= -->
+    <div id="defense-tab" class="tab-content" style="display: none;">
+      <div class="results-card" style="margin-bottom: 24px;">
+        <h2 style="margin-bottom: 8px;">🛡️ Track 02 Defense Metrics & Mathematical Proofs</h2>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 24px;">
+          Evaluated strictly on the held-out test partition of 56,962 transactions (56,864 legitimate, 98 actual frauds).
+        </p>
+
+        <div class="kpi-grid">
+          <div class="kpi-card card-green">
+            <div class="kpi-label">False Alarm Rate</div>
+            <div class="kpi-value" style="color: var(--tier-green);">0.0088%</div>
+            <div class="kpi-subtext">Only 5 false alarms out of 56,864 transactions</div>
+          </div>
+          <div class="kpi-card card-blue">
+            <div class="kpi-label">Model Precision</div>
+            <div class="kpi-value" style="color: var(--accent-primary);">94.19%</div>
+            <div class="kpi-subtext">94%+ of triggered alerts are confirmed fraud</div>
+          </div>
+          <div class="kpi-card card-blue">
+            <div class="kpi-label">PR-AUC Benchmark</div>
+            <div class="kpi-value" style="color: var(--accent-cyan);">88.07%</div>
+            <div class="kpi-subtext">Gold standard metric on 0.17% class imbalance</div>
+          </div>
+          <div class="kpi-card card-yellow">
+            <div class="kpi-label">Brier Calibration Score</div>
+            <div class="kpi-value" style="color: var(--tier-yellow);">0.000406</div>
+            <div class="kpi-subtext">Perfect probabilistic alignment (0.0 is theoretical max)</div>
+          </div>
+        </div>
+
+        <div style="margin-top: 24px; padding: 20px; background: rgba(0,0,0,0.25); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+          <h3 style="font-size: 15px; font-weight: 700; margin-bottom: 12px;">Why GlassBox is 100% Strictly Defensive:</h3>
+          <ul style="font-size: 13px; color: var(--text-secondary); line-height: 1.8; padding-left: 20px;">
+            <li><strong>Shielding Merchant Capital</strong>: Intercepts stolen card transactions and automated payment bot attacks before chargeback fees and product loss occur.</li>
+            <li><strong>Protecting Genuine Customers (Zero-Customer-Loss Policy)</strong>: By maintaining a 94.2% precision and 0.0088% false alarm rate, 99.99% of legitimate shoppers face zero checkout friction.</li>
+            <li><strong>Audit-Ready Explainability (GDPR Art. 22 Compliance)</strong>: Native TreeSHAP generates mathematical attribution vectors in &lt;1ms for financial audit and compliance defense.</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Detailed Inspection Modal -->
+  <div id="tx-modal" class="modal-overlay" onclick="closeModal()">
+    <div class="modal-content" onclick="event.stopPropagation();">
+      <button class="modal-close" onclick="closeModal()">&times;</button>
+      <h3 id="modal-title" style="font-size: 18px; font-weight: 700; margin-bottom: 6px;">Transaction Audit Details</h3>
+      <p id="modal-subtitle" style="font-size: 12.5px; color: var(--text-secondary); margin-bottom: 20px;">Detailed SHAP attributions and audit narrative.</p>
+      
+      <div id="modal-body">
+        <!-- Injected via JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

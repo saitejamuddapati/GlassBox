@@ -3,7 +3,7 @@ FastAPI Service for GlassBox Explainable Fraud Detection System.
 
 Provides endpoints for real-time transaction scoring, batch CSV uploads,
 SHAP explainability, 3-tier risk routing (Allow/Review/Hold), fraud-spike detection,
-and compliance audit logging.
+compliance audit logging, and serves the web frontend dashboard.
 """
 
 from datetime import datetime, timezone
@@ -13,6 +13,8 @@ from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
 from fastapi import FastAPI, File, UploadFile, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from src.explain.explainer import FraudExplainer
 from src.api.schemas import (
@@ -43,10 +45,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load global model & explainer instance
+# Paths
 root_dir = Path(__file__).resolve().parents[2]
 models_dir = root_dir / "src" / "models" / "saved"
+web_dir = root_dir / "web"
 
+# Mount static files for web dashboard
+if web_dir.exists():
+    app.mount("/web", StaticFiles(directory=str(web_dir)), name="web")
+
+# Load global model & explainer instance
 try:
     explainer = FraudExplainer(models_dir=models_dir)
 except Exception as e:
@@ -89,7 +97,6 @@ def map_score_to_band_and_action(prob_fraud: float) -> Tuple[str, str, str]:
 def sanitize_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Strip whitespace and normalize column casing to match expected dataset schema."""
     df = df.copy()
-    # Strip whitespace from column names
     df.columns = [str(c).strip() for c in df.columns]
 
     rename_map = {}
@@ -110,7 +117,17 @@ def sanitize_dataframe_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-@app.get("/", response_model=HealthCheckResponse)
+@app.get("/")
+def serve_dashboard():
+    """Serve the GlassBox interactive web dashboard."""
+    index_file = web_dir / "index.html"
+    if index_file.exists():
+        return FileResponse(index_file)
+    return {
+        "message": "GlassBox API is running. Open /web/index.html or /health for details."
+    }
+
+
 @app.get("/health", response_model=HealthCheckResponse)
 def health_check() -> HealthCheckResponse:
     """Service health and readiness check."""
