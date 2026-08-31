@@ -22,6 +22,38 @@ In credit card payments, fraud detection systems face a costly dilemma:
 
 ---
 
+## 📦 Dataset & Data Provenance
+
+The system is trained and evaluated on the benchmark **Credit Card Fraud Detection Dataset** released by the Machine Learning Group at **ULB (Université Libre de Bruxelles)** and hosted on [Kaggle](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud).
+
+### Dataset Summary
+* **Total Transactions**: `284,807` European cardholder transactions across September 2013.
+* **Class Imbalance**: Highly skewed real-world distribution:
+  * **Frauds**: `492` transactions (**0.172%**)
+  * **Legitimate**: `284,315` transactions (**99.828%**)
+* **Features**:
+  * `Time`: Seconds elapsed between this transaction and the first transaction in the dataset.
+  * `Amount`: Transaction monetary amount (USD/EUR).
+  * `V1` &ndash; `V28`: 28 numerical vectors transformed via **Principal Component Analysis (PCA)** to protect cardholder privacy and comply with **PCI-DSS** confidentiality standards.
+  * `Class`: Target ground-truth label (`1` for fraud, `0` for legitimate).
+
+### Why Raw Dataset CSVs Are Not Committed to Git
+To follow standard machine learning software engineering best practices, raw 150MB+ data files (`*.csv`) are excluded via `.gitignore` to keep the git repository lightweight, fast to clone, and free of binary bloat. All trained model binaries are pre-compiled and committed in `src/models/saved/` so the application runs immediately without retraining.
+
+### How to Retrain from Scratch (Optional)
+If you wish to retrain all models from scratch:
+1. Download `creditcard.csv` from [Kaggle](https://www.kaggle.com/datasets/mlg-ulb/creditcardfraud) into the `data/` directory.
+2. Run data preparation & stratified 80/20 train/test splitting:
+   ```powershell
+   python src/data/prepare_data.py
+   ```
+3. Run 5-fold calibrated ensemble training:
+   ```powershell
+   python src/models/train_ensemble.py
+   ```
+
+---
+
 ## 📊 Held-Out Test Set Benchmark Results
 *Evaluated strictly on the isolated held-out test partition of **56,962 transactions** (56,864 legitimate, 98 actual frauds).*
 
@@ -107,7 +139,7 @@ GlassBox/
 ├── src/
 │   ├── data/                   # Data ingestion, cleaning, and stratified splitting
 │   ├── models/                 # Model training, Platt calibration, Isolation Forest
-│   │   └── saved/              # Serialized model binaries and metadata
+│   │   └── saved/              # Serialized production model binaries and metadata
 │   ├── explain/                # Native TreeSHAP engine & plain-English translator
 │   └── api/                    # FastAPI service, schemas, fraud spike detector, audit logger
 ├── web/                        # Modern Fintech Web Dashboard (HTML5/CSS3/Vanilla JS)
