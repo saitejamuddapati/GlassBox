@@ -1,4 +1,9 @@
 {
+  "model_architecture": {
+    "supervised": "Calibrated XGBoost (5-Fold Platt Scaling)",
+    "unsupervised": "Deep Variational Autoencoder (VAE)",
+    "explainability": "Native C++ TreeSHAP + VAE Reconstruction Residuals"
+  },
   "feature_names": [
     "Time",
     "V1",
@@ -40,7 +45,7 @@
     "v12_v17",
     "top_pca_mag"
   ],
-  "isolation_features": [
+  "vae_features": [
     "V14",
     "V10",
     "V12",
@@ -52,43 +57,55 @@
     "sin_hour",
     "cos_hour"
   ],
-  "isolation_bounds": {
-    "min_score": -0.8437903640561905,
-    "max_score": -0.36105416718529104
+  "vae_bounds": {
+    "min_score": 0.0007221795385703444,
+    "max_score": 30.3464298248291,
+    "threshold": 0.7255968749523163
   },
   "evaluation": {
     "best_metrics": {
-      "threshold": 0.76,
-      "precision": 0.9418604651162791,
-      "recall": 0.826530612244898,
-      "f1_score": 0.8804347826086957,
-      "auc_pr": 0.8807199559221074,
-      "brier_score": 0.000406304679906684,
-      "true_positives": 81,
-      "false_positives": 5,
-      "false_negatives": 17,
-      "true_negatives": 56859,
-      "false_alarm_rate_pct": 0.008792909397861565
+      "threshold": 0.79,
+      "precision": 0.9195402298850575,
+      "recall": 0.8163265306122449,
+      "f1_score": 0.8648648648648649,
+      "specificity": 0.9998768992684299,
+      "auc_pr": 0.86664925860829,
+      "auc_roc": 0.9823852902162553,
+      "brier_score": 0.0004834477202136086,
+      "true_positives": 80,
+      "false_positives": 7,
+      "false_negatives": 18,
+      "true_negatives": 56857,
+      "false_alarm_rate_pct": 0.012310073157006189
+    },
+    "vae_validation": {
+      "mean_normal_mse": 0.06874990463256836,
+      "mean_fraud_mse": 10.582245826721191,
+      "fraud_divergence_ratio": 153.9237891787292,
+      "p95_normal_mse": 0.20889998748898503,
+      "p95_fraud_mse": 48.74141292572021,
+      "sentinel_threshold": 0.7255968749523163
     },
     "three_tier_policy": {
       "red_tier": {
         "min_score": 0.7,
         "tp": 81,
-        "fp": 7
+        "fp": 14,
+        "precision": 0.8526315789473684
       },
       "yellow_tier": {
         "min_score": 0.08,
         "max_score": 0.7,
-        "tp": 3,
+        "tp": 2,
         "fp": 9
       },
       "green_tier": {
         "max_score": 0.08,
-        "tn": 56848,
-        "fn": 14
+        "tn": 56841,
+        "fn": 15
       },
-      "total_fraud_intercepted": 84,
-      "total_fraud_intercept_rate_pct": 85.71428571428571
+      "total_fraud_intercepted": 83,
+      "total_fraud_intercept_rate_pct": 84.6938775510204
     }
   }
 }

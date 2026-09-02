@@ -188,6 +188,18 @@ class FraudExplainer:
         self.base_xgb: XGBClassifier = joblib.load(self.base_xgb_path)
         self.booster: xgb.Booster = self.base_xgb.get_booster()
 
+        # Load Deep VAE Sentinel if available
+        try:
+            from src.models.vae_sentinel import DeepVAESentinel
+            vae_path = self.models_dir / "vae_sentinel.pt"
+            if vae_path.exists():
+                self.vae_sentinel = DeepVAESentinel.load(self.models_dir)
+                print("[OK] Deep VAE Anomaly Sentinel loaded.")
+            else:
+                self.vae_sentinel = None
+        except Exception as e:
+            self.vae_sentinel = None
+
         print("[OK] SHAP Tree Explainer initialized (Native C++ TreeSHAP Engine).")
 
     @staticmethod

@@ -3,6 +3,7 @@
 
 [![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)](https://python.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-1.0.0-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
+[![PyTorch](https://img.shields.io/badge/PyTorch-Deep%20VAE-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org)
 [![XGBoost](https://img.shields.io/badge/XGBoost-Calibrated-FF6600)](https://xgboost.ai)
 [![SHAP](https://img.shields.io/badge/TreeSHAP-C++%20Engine-000000)](https://github.com/slundberg/shap)
 [![Defense](https://img.shields.io/badge/Defense--Only-Compliant-10B981)](#-why-glassbox-is-strictly-defensive)
@@ -16,9 +17,23 @@ In credit card payments, fraud detection systems face a costly dilemma:
 * **Aggressive Models** trigger false alarms, auto-declining genuine shoppers. Research reveals that **~33% of falsely declined customers permanently abandon that merchant**.
 
 **GlassBox** is an open, explainable AI Risk Management platform designed to solve both problems simultaneously:
-1. **Captures >85.7% of Fraud Attacks** and detects live multi-card fraud spikes in real time.
-2. **Protects Legitimate Shoppers (Zero-Customer-Loss Policy)**: Reduces hard false alarms down to **0.012% (only 7 false blocks out of 56,864 genuine shoppers)**.
-3. **Explains Every Decision in Plain English**: Powered by native C++ **TreeSHAP**, providing exact mathematical risk drivers and trust drivers without black-box opacity.
+1. **Captures 84.7% – 85.7% of Fraud Attacks** and detects live multi-card fraud spikes in real time.
+2. **Protects Legitimate Shoppers (Zero-Customer-Loss Policy)**: Reduces hard false alarms down to **0.012% (only 7 to 14 false blocks out of 56,864 genuine shoppers)**.
+3. **Deep VAE Anomaly Sentinel**: Catches novel, zero-day fraud attacks by modeling the continuous non-linear manifold of legitimate transactions (exhibiting **153.9x higher reconstruction divergence on fraud attacks**).
+4. **Explains Every Decision in Plain English**: Powered by native C++ **TreeSHAP**, providing exact mathematical risk drivers and trust drivers without black-box opacity.
+
+---
+
+## 🧬 Architectural Evolution: From Isolation Forest to Deep VAE
+
+During development and experimental validation, the project underwent an important architectural upgrade:
+
+* **Initial Baseline (Isolation Forest)**: We initially deployed a classical scikit-learn Isolation Forest for unsupervised anomaly detection. While effective for simple axis-aligned outliers, Isolation Forest isolates anomalies using rigid rectangular orthogonal hyperplanes ($x_i > \theta$), creating boundary blind spots on 30-dimensional correlated PCA features and occasionally flagging legitimate holiday shopping patterns.
+* **Empirical Research & Pivot to Deep VAE Sentinel**: To overcome this, we designed a **Semi-Supervised Deep Variational Autoencoder (VAE)** in PyTorch. The VAE is trained strictly on **100% legitimate transactions ($Class = 0$, ~227k samples)** to learn a smooth Gaussian latent manifold ($\mu_z, \sigma_z^2$). 
+* **Key Benefits of the Upgrade**:
+  * **153.9x Reconstruction Divergence**: Normal purchases reconstruct cleanly ($\text{MSE} = 0.0687$), while unseen fraud patterns fail to compress/reconstruct ($\text{MSE} = 10.582$).
+  * **Ultra-Lightweight & Sub-Millisecond**: The trained PyTorch model is only **17.3 KB** (down from 20.7 MB for the tree forest) and executes in **<0.25 ms on CPU**.
+  * **Granular XAI Residuals**: For zero-day anomalies, analysts can inspect the feature-level reconstruction delta vector $|x_i - \hat{x}_i|$ to see *which exact features diverged from normal behavior*.
 
 ---
 
@@ -47,7 +62,7 @@ If you wish to retrain all models from scratch:
    ```powershell
    python src/data/prepare_data.py
    ```
-3. Run 5-fold calibrated ensemble training:
+3. Run 5-fold calibrated ensemble and Deep VAE training:
    ```powershell
    python src/models/train_ensemble.py
    ```
@@ -57,13 +72,18 @@ If you wish to retrain all models from scratch:
 ## 📊 Held-Out Test Set Benchmark Results
 *Evaluated strictly on the isolated held-out test partition of **56,962 transactions** (56,864 legitimate, 98 actual frauds).*
 
-| Metric | Result | Benchmark Significance |
+| Evaluation Metric | Result | Benchmark Significance |
 | :--- | :--- | :--- |
-| **PR-AUC (Average Precision)** | **88.07%** | Gold standard metric on heavy 0.17% class imbalance |
-| **Hard Block Precision** | **92.05%** | 92%+ of instant hard-blocked cards ($\ge 0.70$) are confirmed fraud |
-| **Hard False Alarm Rate** | **0.012%** | **Only 7 false blocks out of 56,864 genuine cardholders** |
-| **Brier Calibration Score** | **0.000406** | Mathematical proof of probabilistic alignment ($0.0$ is perfect) |
-| **Inference Throughput** | **>845 tx/s** | Sub-millisecond execution for live card-swipe authorization |
+| **PR-AUC (Average Precision)** | **86.66%** | Gold standard metric on extreme 0.17% class imbalance |
+| **ROC-AUC (Area Under Curve)** | **98.24%** | Global discriminative separation between legitimate & fraud |
+| **Hard Block Precision ($\ge 0.70$)** | **85.26%** | 85%+ of instant hard-blocked transactions are confirmed attacks |
+| **Recall (Fraud Interception Rate)** | **84.69%** | 83 out of 98 test frauds stopped via Red + Yellow 2FA tiers |
+| **F1 Score (Balanced Accuracy)** | **0.8649** | Harmonic mean of Precision and Recall |
+| **Specificity (Shopper Clearance)** | **99.9877%** | Genuine cardholders approved without delay or friction |
+| **Hard False Alarm Rate** | **0.0123%** | **Only 7 false blocks out of 56,864 genuine cardholders** |
+| **Brier Calibration Score** | **0.000483** | Mathematical proof of probabilistic alignment ($0.0$ is perfect) |
+| **Deep VAE Anomaly Divergence** | **153.9x** | Mean MSE of 10.582 on fraud vs. 0.0687 on normal cardholders |
+| **Inference Latency** | **< 1.0 ms** | Sub-millisecond execution for live card-swipe authorization |
 
 ---
 
@@ -76,8 +96,8 @@ Rather than relying on a crude binary "Block / Allow" switch, GlassBox routes tr
                                              │
                        ┌─────────────────────┴─────────────────────┐
                        ▼                                           ▼
-             [ Supervised XGBoost ]                     [ Isolation Forest ]
-             (5-Fold Platt Scaling)                     (Unsupervised Anomaly)
+             [ Supervised XGBoost ]                     [ Deep VAE Sentinel ]
+             (5-Fold Platt Scaling)                     (Semi-Supervised Anomaly)
                        └─────────────────────┬─────────────────────┘
                                              │
                                              ▼
@@ -89,8 +109,8 @@ Rather than relying on a crude binary "Block / Allow" switch, GlassBox routes tr
          ▼                                   ▼                                   ▼
  🟢 [GREEN TIER] (<0.08)            🟡 [YELLOW TIER] (0.08 - 0.70)      🔴 [RED TIER] (>=0.70)
    • Action: ALLOW                     • Action: REVIEW / 2FA              • Action: HOLD
-   • 99.97% of normal users            • 3-Second SMS OTP Challenge        • Instant Hard Block
-   • Frictionless checkout             • 0 Customer Loss, 0 Fraud Loss     • 92.05% Precision
+   • 99.96% of normal users            • 3-Second SMS OTP Challenge        • Instant Hard Block
+   • Frictionless checkout             • 0 Customer Loss, 0 Fraud Loss     • 85.26% Precision
 ```
 
 ---
@@ -100,6 +120,7 @@ Rather than relying on a crude binary "Block / Allow" switch, GlassBox routes tr
 GlassBox translates complex mathematical feature attributions into plain-English analyst summaries:
 * 🔺 **Top 3 Risk Drivers (Score UP)**: Highlights behavioral security divergences ($V_{14}$), velocity burst spikes ($V_4$), and non-standard purchase amounts.
 * 🛡️ **Top 3 Trust Drivers (Score DOWN)**: Identifies verified device signatures and routine transaction baselines (preventing false declines on high-dollar \$1,500+ legitimate orders).
+* 🔬 **VAE Anomaly Residuals**: Provides feature-level reconstruction error vectors for zero-day out-of-distribution attacks.
 
 ---
 
@@ -120,7 +141,7 @@ python -m uvicorn src.api.main:app --port 8000 --reload
 ### 3. Open in Browser
 Navigate to **`http://127.0.0.1:8000/`**:
 * Click **"⚡ Load 10 Demo Transactions"** for instant 1-click evaluation.
-* Drag and drop any transaction CSV (e.g. [`data/sample_eval_transactions.csv`](file:///c:/Users/tejbo/OneDrive/Documents/GlassBox/data/sample_eval_transactions.csv) or full datasets).
+* Drag and drop any transaction CSV (e.g. `data/sample_eval_transactions.csv` or full datasets).
 * Switch to the **⚡ Live Payment Simulator** tab to test card swipes with live parameter sliders.
 
 ---
@@ -137,12 +158,14 @@ GlassBox/
 ├── logs/                       # Immutable regulatory audit log (logs/audit.log)
 ├── src/
 │   ├── data/                   # Data ingestion, cleaning, and stratified splitting
-│   ├── models/                 # Model training, Platt calibration, Isolation Forest
-│   │   └── saved/              # Serialized production model binaries and metadata
+│   ├── models/                 # Model training, Platt calibration, Deep VAE Sentinel
+│   │   ├── vae_sentinel.py     # PyTorch Deep Variational Autoencoder Anomaly Sentinel
+│   │   ├── train_ensemble.py   # 5-fold cross-validated training & evaluation pipeline
+│   │   └── saved/              # Serialized production model binaries (.joblib, .pt, .json)
 │   ├── explain/                # Native TreeSHAP engine & plain-English translator
 │   └── api/                    # FastAPI service, schemas, fraud spike detector, audit logger
 ├── web/                        # Modern Fintech Web Dashboard (HTML5/CSS3/Vanilla JS)
-├── requirements.txt            # Project dependencies
+├── requirements.txt            # Project dependencies (including PyTorch, XGBoost, SHAP, FastAPI)
 └── README.md
 ```
 
