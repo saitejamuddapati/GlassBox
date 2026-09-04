@@ -19,5 +19,6 @@ Thumbs.db
 logs/
 *.log
 
-# Internal study notes
+# Internal study notes & scratch
 docs/phase-notes/
+scratch/
