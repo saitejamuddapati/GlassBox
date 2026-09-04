@@ -11,7 +11,7 @@
 
 ---
 
-## 🌟 Executive Summary for the Panel
+## 🌟 Executive Summary
 
 | Dimension | GlassBox Innovation & Measured Benchmark |
 | :--- | :--- |
@@ -83,7 +83,7 @@ During development and experimental validation, the project underwent an importa
 ## 📊 Held-Out Test Set Benchmark Results
 *Evaluated strictly on the isolated held-out test partition of **56,962 transactions** (56,864 legitimate cardholders, 98 confirmed frauds).*
 
-| Evaluation Metric | Measured Result | Benchmark & Panel Significance |
+| Evaluation Metric | Measured Result | Industry Benchmark & Significance |
 | :--- | :--- | :--- |
 | **PR-AUC (Average Precision)** | **86.66%** | **Gold Standard** metric for heavy 0.17% fraud class imbalance |
 | **ROC-AUC (Area Under Curve)** | **98.24%** | Global discriminative separation between legitimate & fraud |
