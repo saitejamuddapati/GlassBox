@@ -115,9 +115,28 @@ async function uploadCSVFile(file) {
 
     const data = await res.json();
     renderBatchResponse(data);
+
+    // Show persistent analysis success badge in dropzone
+    dropzone.innerHTML = `
+      <div style="padding: 18px 20px;">
+        <div style="font-size: 28px; color: var(--tier-green); margin-bottom: 6px;">✓</div>
+        <h3 style="font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 6px;">
+          Batch Analyzed: <span style="color: var(--accent-cyan); font-family: monospace;">${escapeHtml(file.name)}</span>
+        </h3>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">
+          ${data.summary.total_transactions.toLocaleString()} transactions processed • 
+          ${(data.summary.risk_band_counts.High || 0).toLocaleString()} High Risk • 
+          ${(data.summary.risk_band_counts.Medium || 0).toLocaleString()} 2FA Review • 
+          ${(data.summary.risk_band_counts.Low || 0).toLocaleString()} Auto-Approved
+        </p>
+        <div class="upload-actions" style="margin-top: 10px;" onclick="event.stopPropagation();">
+          <button class="btn btn-secondary" style="font-size: 12px; padding: 6px 14px;" onclick="document.getElementById('csv-file-input').click()">📁 Upload Another File</button>
+          <button class="btn btn-primary" style="font-size: 12px; padding: 6px 14px;" onclick="document.getElementById('results-section').scrollIntoView({ behavior: 'smooth' })">View Transaction Feed ↓</button>
+        </div>
+      </div>
+    `;
   } catch (err) {
     alert("Error analyzing CSV: " + err.message);
-  } finally {
     dropzone.innerHTML = originalHtml;
   }
 }
@@ -184,18 +203,33 @@ function renderBatchResponse(data) {
     gtCard.style.display = "none";
   }
 
-  // 4. Update Filter Counts
-  document.getElementById("count-all").innerText = summary.displayed_transactions || currentTransactions.length;
-  document.getElementById("count-high").innerText = summary.risk_band_counts.High || 0;
-  document.getElementById("count-med").innerText = summary.risk_band_counts.Medium || 0;
-  document.getElementById("count-low").innerText = summary.risk_band_counts.Low || 0;
+  // 4. Update Filter Counts (Unified with Total Scored)
+  document.getElementById("count-all").innerText = summary.total_transactions.toLocaleString();
+  document.getElementById("count-high").innerText = (summary.risk_band_counts.High || 0).toLocaleString();
+  document.getElementById("count-med").innerText = (summary.risk_band_counts.Medium || 0).toLocaleString();
+  document.getElementById("count-low").innerText = (summary.risk_band_counts.Low || 0).toLocaleString();
 
   // 5. Update info text
-  document.getElementById("display-info-text").innerText = `Displaying ${currentTransactions.length} prioritized transactions with SHAP attributions (Total batch scored: ${summary.total_transactions.toLocaleString()}).`;
+  const isLargeBatch = summary.total_transactions > currentTransactions.length;
+  if (isLargeBatch) {
+    document.getElementById("display-info-text").innerText = 
+      `All ${summary.total_transactions.toLocaleString()} transactions scored instantly on backend. Showing all ${(summary.risk_band_counts.High || 0) + (summary.risk_band_counts.Medium || 0)} flagged high & medium risk cases + sample of cleared transactions (prioritized for zero-lag browser rendering).`;
+  } else {
+    document.getElementById("display-info-text").innerText = 
+      `Displaying all ${currentTransactions.length} transactions with native TreeSHAP attributions and 3-tier action routing.`;
+  }
 
-  // 6. Render Table with Pagination
+  // 6. Render Table with Pagination & Auto-Scroll
   document.getElementById("results-section").style.display = "block";
   filterTable("all");
+
+  // Smooth scroll down to results section so user immediately sees the feed
+  setTimeout(() => {
+    const resultsSection = document.getElementById("results-section");
+    if (resultsSection) {
+      resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, 150);
 }
 
 // Table Filter
