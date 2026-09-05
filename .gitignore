@@ -3,9 +3,16 @@
 data/*.csv
 creditcard.csv
 
-# Python bytecode
+# Python bytecode and test caches
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
 
 # Virtual environments
 .venv/
