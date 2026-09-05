@@ -150,6 +150,24 @@ def serve_js():
     raise HTTPException(status_code=404, detail="app.js not found")
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+def serve_favicon():
+    """Serve favicon.ico to prevent 404 in browser requests."""
+    ico_file = web_dir / "favicon.ico"
+    if ico_file.exists():
+        return FileResponse(ico_file, media_type="image/x-icon")
+    raise HTTPException(status_code=404, detail="favicon.ico not found")
+
+
+@app.get("/favicon.svg", include_in_schema=False)
+def serve_favicon_svg():
+    """Serve favicon.svg for modern vector icons."""
+    svg_file = web_dir / "favicon.svg"
+    if svg_file.exists():
+        return FileResponse(svg_file, media_type="image/svg+xml")
+    raise HTTPException(status_code=404, detail="favicon.svg not found")
+
+
 # -------------------------------------------------------------
 # API Endpoints
 # -------------------------------------------------------------

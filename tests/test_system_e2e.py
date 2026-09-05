@@ -171,7 +171,15 @@ async def run_api_tests():
         
         response_js = await client.get("/app.js")
         assert response_js.status_code == 200
-        print("[PASS] Web dashboard root and static routes (/style.css, /app.js) served correctly.")
+
+        response_ico = await client.get("/favicon.ico")
+        assert response_ico.status_code == 200
+        assert len(response_ico.content) > 0
+
+        response_svg = await client.get("/favicon.svg")
+        assert response_svg.status_code == 200
+        assert "<svg" in response_svg.text
+        print("[PASS] Web dashboard root and static routes (/style.css, /app.js, /favicon.ico, /favicon.svg) served correctly.")
 
 
 def test_audit_log_created():
